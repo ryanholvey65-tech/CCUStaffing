@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#123f5a" />
+  <title>CICU Staffing</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">6480 CCU</span>
+        <h1>CICU Staffing</h1>
+        <p>Read the weekly staffing PDF in your browser, review the results, and fill your existing Google Sheets template.</p>
+      </div>
+      <div class="privacy"><strong>Local PDF processing</strong><br />The schedule stays on this device.</div>
+    </header>
+
+    <section class="setup card">
+      <div class="section-title"><span class="step">1</span><div><h2>One-time setup</h2><p>Enter the free Google OAuth Client ID and your assignment-sheet template URL.</p></div></div>
+      <div class="grid two">
+        <label>Google OAuth Client ID
+          <input id="clientId" placeholder="123456789-abc.apps.googleusercontent.com" autocomplete="off" />
+        </label>
+        <label>Google Sheets template URL
+          <input id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/…/edit" autocomplete="off" />
+        </label>
+      </div>
+      <div class="actions">
+        <button id="saveSetup" class="secondary">Save setup</button>
+        <button id="connectGoogle">Connect Google Sheets</button>
+        <span id="authStatus" class="status">Not connected</span>
+      </div>
+      <details><summary>Where do I get the Client ID?</summary><ol><li>Create a free project in Google Cloud Console.</li><li>Enable <strong>Google Sheets API</strong>.</li><li>Create an OAuth 2.0 Client ID for a <strong>Web application</strong>.</li><li>Add the web app address as an authorized JavaScript origin.</li><li>Paste the Client ID above. No client secret is used or stored.</li></ol></details>
+    </section>
+
+    <section class="card">
+      <div class="section-title"><span class="step">2</span><div><h2>Upload weekly schedule</h2><p>Select the scanned weekly staffing PDF. OCR runs entirely in your browser.</p></div></div>
+      <label class="dropzone" id="dropzone">
+        <input id="pdfFile" type="file" accept="application/pdf" />
+        <strong id="fileName">Choose or drop a PDF</strong>
+        <span>PDF only · nothing is uploaded to a server</span>
+      </label>
+      <div class="actions">
+        <button id="readPdf" disabled>Read schedule</button>
+        <button id="loadDemo" class="ghost">Load example rows</button>
+      </div>
+      <div id="progressBox" class="progress-box hidden">
+        <div class="progress-line"><span id="progressText">Preparing…</span><strong id="progressPct">0%</strong></div>
+        <progress id="progress" max="100" value="0"></progress>
+      </div>
+    </section>
+
+    <section class="card review-card">
+      <div class="section-title split"><div class="with-step"><span class="step">3</span><div><h2>Review schedule</h2><p>Correct any OCR mistakes before writing to the assignment sheets.</p></div></div><div class="review-controls"><label>Date<select id="dateFilter"><option value="">All dates</option></select></label><button id="addRow" class="ghost small">+ Add row</button></div></div>
+      <div id="summary" class="summary">No staffing entries yet.</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Use</th><th>Date</th><th>Name</th><th>Role</th><th>Span</th><th>Scheduled time</th><th>Confidence</th><th></th></tr></thead>
+          <tbody id="rows"><tr><td colspan="8" class="empty">Upload and read a schedule to begin.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-title"><span class="step">4</span><div><h2>Fill assignment sheets</h2><p>The selected date is written directly into the 1st Shift, 2nd Shift, and 3rd Shift tabs.</p></div></div>
+      <div class="grid two compact">
+        <label>Date to generate<select id="generateDate"><option value="">Select a date</option></select></label>
+        <label>Mode<select id="writeMode"><option value="replace">Replace current staff names</option><option value="append">Add below existing names</option></select></label>
+      </div>
+      <div class="actions"><button id="fillSheet" disabled>Fill Google Sheet</button><button id="openSheet" class="secondary">Open template</button><span id="writeStatus" class="status"></span></div>
+      <div id="log" class="log hidden"></div>
+    </section>
+
+    <footer>This tool is intended for staffing data only. Do not include patient names, medical record numbers, or other patient information.</footer>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
