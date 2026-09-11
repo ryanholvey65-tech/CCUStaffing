@@ -1,7 +1,7 @@
 import { TEMPLATE, GOOGLE_SCOPE } from './config.js';
 
 const $ = id => document.getElementById(id);
-const state = { rows: [], token: '', tokenClient: null, file: null };
+const state = { rows: [], token: '', tokenClient: null, file: null, lastOutputUrl: '' };
 const els = Object.fromEntries(['clientId','sheetUrl','saveSetup','connectGoogle','authStatus','pdfFile','fileName','readPdf','loadDemo','progressBox','progressText','progressPct','progress','dateFilter','generateDate','writeMode','rows','summary','addRow','fillSheet','openSheet','writeStatus','log','dropzone'].map(id=>[id,$(id)]));
 
 window.addEventListener('DOMContentLoaded', init);
@@ -15,7 +15,7 @@ function init(){
   els.saveSetup.onclick=saveSetup; els.connectGoogle.onclick=connectGoogle; els.readPdf.onclick=readPdf;
   els.loadDemo.onclick=loadDemo; els.dateFilter.onchange=render; els.generateDate.onchange=updateButtons;
   els.addRow.onclick=()=>{state.rows.push(blankRow());refreshDates();render()};
-  els.fillSheet.onclick=fillGoogleSheet; els.openSheet.onclick=()=>openSheet();
+  els.fillSheet.onclick=buildFilledSheet; els.openSheet.onclick=()=>openSheet();
   updateButtons();
 }
 function saveSetup(){localStorage.setItem('cicuClientId',els.clientId.value.trim());localStorage.setItem('cicuSheetUrl',els.sheetUrl.value.trim());setAuth('Setup saved.',true)}
@@ -66,7 +66,7 @@ function parseOcrPages(pages){
         const role=normalizeRole(meta.job,name); const span=normalizeSpan(meta.span,time);
         if(!['RN','CHUC','ANM','NurseExt'].includes(role))continue;
         const conf=Math.max(.35,Math.min(.99,(cellLines[i].conf+context.length*8)/100));
-        out.push({id:crypto.randomUUID(),use:role==='RN'||role==='CHUC',date:col.date,name,role,span,time,confidence:conf,page:page.page});
+        out.push({id:crypto.randomUUID(),use:role==='RN'||role==='CHUC',date:col.date,name,role,span,time,confidence:conf,page:page.page,sourceOrder:out.length});
       }
     }
   }
@@ -90,38 +90,100 @@ function validNameLine(t){const u=t.toUpperCase();return /[A-Z]{2}/.test(u)&&!/(
 function cleanName(t){return t.toUpperCase().replace(/[^A-Z,.' -]/g,' ').replace(/\b(X|FT|RN|ICURN|CCURN)\b/g,' ').replace(/\s+/g,' ').trim().replace(/^[-, ]+|[-, ]+$/g,'')}
 function normalizeRole(job,name){if(job==='HUC'||job==='CHUC')return'CHUC';if(job==='ANM')return'ANM';if(job==='NURSEEXT'||/CREEDON/.test(name))return'NurseExt';return'RN'}
 function normalizeSpan(span,time){if(span)return span;const start=+(time||'').slice(0,2);if(start===7)return'0700-1500';if(start===15)return'1500-1900';if(start===19)return'1900-2300';if(start===23)return'2300-0700';return'0700-1500'}
-function dedupe(rows){const seen=new Set();return rows.filter(r=>{const k=[r.date,normalize(r.name),r.role,r.span].join('|');if(seen.has(k))return false;seen.add(k);return true}).sort((a,b)=>a.date.localeCompare(b.date)||a.span.localeCompare(b.span)||a.name.localeCompare(b.name))}
+function dedupe(rows){const seen=new Set();return rows.filter(r=>{const k=[r.date,normalize(r.name),r.role,r.span].join('|');if(seen.has(k))return false;seen.add(k);return true})}
 function normalize(v=''){return String(v).toUpperCase().replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim()}
-function blankRow(){return{id:crypto.randomUUID(),use:true,date:els.generateDate.value||'',name:'',role:'RN',span:'0700-1500',time:'',confidence:1}}
-function loadDemo(){state.rows=[['2026-07-20','CZARNOTA, JORDAN M','RN','0700-1500','07:00-19:30'],['2026-07-20','GARZA, GABRIELLE E','RN','0700-1500','07:00-19:30'],['2026-07-20','MCGEE, IVANA M','CHUC','0700-1500','07:00-19:30'],['2026-07-20','BAMARD, SARAH E','RN','1900-2300','19:00-07:30']].map(x=>({id:crypto.randomUUID(),use:true,date:x[0],name:x[1],role:x[2],span:x[3],time:x[4],confidence:.97}));refreshDates();render()}
+function blankRow(){return{id:crypto.randomUUID(),use:true,date:els.generateDate.value||'',name:'',role:'RN',span:'0700-1500',time:'',confidence:1,sourceOrder:state.rows.length}}
+function loadDemo(){state.rows=[['2026-07-20','CZARNOTA, JORDAN M','RN','0700-1500','07:00-19:30'],['2026-07-20','GARZA, GABRIELLE E','RN','0700-1500','07:00-19:30'],['2026-07-20','MCGEE, IVANA M','CHUC','0700-1500','07:00-19:30'],['2026-07-20','BAMARD, SARAH E','RN','1900-2300','19:00-07:30']].map((x,i)=>({id:crypto.randomUUID(),use:true,date:x[0],name:x[1],role:x[2],span:x[3],time:x[4],confidence:.97,sourceOrder:i}));refreshDates();render()}
 function refreshDates(){const dates=[...new Set(state.rows.map(r=>r.date).filter(Boolean))].sort();for(const select of [els.dateFilter,els.generateDate]){const prior=select.value;select.innerHTML=`<option value="">${select===els.dateFilter?'All dates':'Select a date'}</option>`+dates.map(d=>`<option value="${d}">${displayDate(d)}</option>`).join('');if(dates.includes(prior))select.value=prior;else if(select===els.generateDate&&dates.length)select.value=dates[0]}updateButtons()}
 function render(){const filter=els.dateFilter.value;const rows=state.rows.filter(r=>!filter||r.date===filter);els.summary.textContent=state.rows.length?`${state.rows.length} total entries · ${state.rows.filter(r=>r.use).length} selected · ${new Set(state.rows.map(r=>r.date)).size} dates`:'No staffing entries yet.';if(!rows.length){els.rows.innerHTML='<tr><td colspan="8" class="empty">No entries for this view.</td></tr>';return}els.rows.innerHTML=rows.map(r=>`<tr class="${r.confidence<.78?'low':''}" data-id="${r.id}"><td><input data-k="use" type="checkbox" ${r.use?'checked':''}></td><td><input data-k="date" type="date" value="${esc(r.date)}"></td><td><input data-k="name" value="${esc(r.name)}"></td><td><select data-k="role">${['RN','CHUC','ANM','NurseExt','OTHER'].map(x=>`<option ${x===r.role?'selected':''}>${x}</option>`).join('')}</select></td><td><select data-k="span">${Object.keys(TEMPLATE.spans).map(x=>`<option ${x===r.span?'selected':''}>${x}</option>`).join('')}</select></td><td><input data-k="time" value="${esc(r.time)}"></td><td>${Math.round((r.confidence||0)*100)}%</td><td><button class="icon-button" data-delete>Delete</button></td></tr>`).join('');els.rows.querySelectorAll('[data-k]').forEach(el=>el.addEventListener('change',e=>{const row=state.rows.find(x=>x.id===e.target.closest('tr').dataset.id);row[e.target.dataset.k]=e.target.type==='checkbox'?e.target.checked:e.target.value;refreshDates();render()}));els.rows.querySelectorAll('[data-delete]').forEach(el=>el.onclick=e=>{state.rows=state.rows.filter(x=>x.id!==e.target.closest('tr').dataset.id);refreshDates();render()});updateButtons()}
 function esc(v=''){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function displayDate(v){if(!/^\d{4}-\d{2}-\d{2}$/.test(v))return v;const [y,m,d]=v.split('-');return`${+m}/${+d}/${y}`}
 function spreadsheetId(){const v=els.sheetUrl.value.trim();return v.match(/\/spreadsheets\/d\/([\w-]+)/)?.[1]||(/^[\w-]{20,}$/.test(v)?v:'')}
-function openSheet(){const id=spreadsheetId();if(id)window.open(`https://docs.google.com/spreadsheets/d/${id}/edit`,'_blank');else alert('Enter the Google Sheets template URL first.')}
+function openSheet(){const id=state.lastOutputUrl.match(/\/d\/([\w-]+)/)?.[1]||spreadsheetId();if(id)window.open(`https://docs.google.com/spreadsheets/d/${id}/edit`,'_blank');else alert('Enter the Google Sheets template URL first.')}
 function updateButtons(){els.fillSheet.disabled=!(state.token&&spreadsheetId()&&els.generateDate.value&&state.rows.some(r=>r.use&&r.date===els.generateDate.value))}
-async function api(path,options={}){const res=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId()}${path}`,{...options,headers:{Authorization:`Bearer ${state.token}`,'Content-Type':'application/json',...(options.headers||{})}});const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error?.message||`Google Sheets error ${res.status}`);return data}
-async function fillGoogleSheet(){
-  const date=els.generateDate.value;const selected=state.rows.filter(r=>r.use&&r.date===date&&(r.role==='RN'||r.role==='CHUC'));if(!selected.length)return;
-  els.fillSheet.disabled=true;els.writeStatus.textContent='Writing…';els.log.classList.add('hidden');
+
+async function googleJson(url,options={}){
+  const res=await fetch(url,{...options,headers:{Authorization:`Bearer ${state.token}`,'Content-Type':'application/json',...(options.headers||{})}});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(data.error?.message||`Google API error ${res.status}`);
+  return data;
+}
+function sheetsUrl(id,path=''){return `https://sheets.googleapis.com/v4/spreadsheets/${id}${path}`}
+async function sheetsApi(id,path='',options={}){return googleJson(sheetsUrl(id,path),options)}
+
+async function createTemplateCopy(sourceId,date){
+  const sourceMeta=await sheetsApi(sourceId,'?fields=sheets.properties(sheetId,title)');
+  const needed=[...new Set(Object.values(TEMPLATE.spans).map(x=>x.sheet))];
+  const byTitle=new Map((sourceMeta.sheets||[]).map(s=>[s.properties?.title,s.properties]));
+  const missing=needed.filter(title=>!byTitle.has(title));
+  if(missing.length)throw new Error(`Template is missing required tab(s): ${missing.join(', ')}`);
+
+  const title=`CICU Daily Assignment - ${date}`;
+  const created=await googleJson('https://sheets.googleapis.com/v4/spreadsheets',{method:'POST',body:JSON.stringify({properties:{title}})});
+  const destId=created.spreadsheetId;
+  const defaultSheetId=created.sheets?.[0]?.properties?.sheetId;
+  if(!destId)throw new Error('Google did not return a new spreadsheet ID.');
+
+  const copied=[];
+  for(const sheetName of needed){
+    const sourceSheet=byTitle.get(sheetName);
+    const copy=await sheetsApi(sourceId,`/sheets/${sourceSheet.sheetId}:copyTo`,{method:'POST',body:JSON.stringify({destinationSpreadsheetId:destId})});
+    copied.push({sheetId:copy.sheetId,title:sheetName});
+  }
+
+  const requests=copied.map(s=>({updateSheetProperties:{properties:{sheetId:s.sheetId,title:s.title},fields:'title'}}));
+  if(defaultSheetId!=null)requests.push({deleteSheet:{sheetId:defaultSheetId}});
+  if(requests.length)await sheetsApi(destId,':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
+  return destId;
+}
+
+async function writeScheduleToSpreadsheet(targetId,date,selected){
+  const clearRanges=[],writes=[],logs=[];
+  for(const [span,cfg] of Object.entries(TEMPLATE.spans)){
+    const group=selected.filter(r=>r.span===span).sort((a,b)=>(a.sourceOrder??0)-(b.sourceOrder??0));
+    const nurses=group.filter(r=>r.role==='RN').map(r=>aliasName(r.name));
+    const chuc=group.find(r=>r.role==='CHUC');
+    clearRanges.push(`'${cfg.sheet}'!${cfg.rnRange}`);
+    if(cfg.chucCell)clearRanges.push(`'${cfg.sheet}'!${cfg.chucCell}`);
+    const capacity=rangeCapacity(cfg.rnRange);
+    if(nurses.length>capacity)logs.push(`${span}: ${nurses.length-capacity} RN(s) exceeded available slots.`);
+    if(nurses.length)writes.push({range:`'${cfg.sheet}'!${cfg.rnRange}`,majorDimension:'ROWS',values:nurses.slice(0,capacity).map(x=>[x])});
+    if(chuc&&cfg.chucCell)writes.push({range:`'${cfg.sheet}'!${cfg.chucCell}`,values:[[aliasName(chuc.name)]]});
+    writes.push({range:`'${cfg.sheet}'!${cfg.dateCell}`,values:[[displayDate(date)]]});
+  }
+  if(clearRanges.length)await sheetsApi(targetId,'/values:batchClear',{method:'POST',body:JSON.stringify({ranges:clearRanges})});
+  await sheetsApi(targetId,'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data:writes})});
+  return logs;
+}
+
+async function buildFilledSheet(){
+  const date=els.generateDate.value;
+  const sourceId=spreadsheetId();
+  const selected=state.rows.filter(r=>r.use&&r.date===date&&(r.role==='RN'||r.role==='CHUC'));
+  if(!selected.length)return;
+  els.fillSheet.disabled=true;
+  els.writeStatus.textContent='Building filled sheet…';
+  els.writeStatus.className='status';
+  els.log.classList.add('hidden');
+  state.lastOutputUrl='';
   try{
     localStorage.setItem('cicuSheetUrl',els.sheetUrl.value.trim());
-    const clearRanges=[],writes=[],logs=[];
-    for(const [span,cfg] of Object.entries(TEMPLATE.spans)){
-      const group=selected.filter(r=>r.span===span);const nurses=group.filter(r=>r.role==='RN').map(r=>aliasName(r.name));const chuc=group.find(r=>r.role==='CHUC');
-      if(els.writeMode.value==='replace'){clearRanges.push(`'${cfg.sheet}'!${cfg.rnRange}`);if(cfg.chucCell)clearRanges.push(`'${cfg.sheet}'!${cfg.chucCell}`)}
-      const capacity=rangeCapacity(cfg.rnRange);if(nurses.length>capacity)logs.push(`${span}: ${nurses.length-capacity} RN(s) exceeded available slots.`);
-      if(nurses.length)writes.push({range:`'${cfg.sheet}'!${cfg.rnRange}`,majorDimension:'ROWS',values:nurses.slice(0,capacity).map(x=>[x])});
-      if(chuc&&cfg.chucCell)writes.push({range:`'${cfg.sheet}'!${cfg.chucCell}`,values:[[aliasName(chuc.name)]]});
-      writes.push({range:`'${cfg.sheet}'!${cfg.dateCell}`,values:[[displayDate(date)]]});
-    }
-    if(clearRanges.length)await api('/values:batchClear',{method:'POST',body:JSON.stringify({ranges:clearRanges})});
-    await api('/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data:writes})});
-    els.writeStatus.textContent='Assignment sheets filled';els.writeStatus.className='status good';
-    els.log.textContent=logs.length?logs.join('\n'):`Successfully wrote ${selected.length} selected staffing entries for ${displayDate(date)}.`;els.log.classList.remove('hidden');
-  }catch(err){console.error(err);els.writeStatus.textContent='Write failed';els.writeStatus.className='status bad';els.log.textContent=err.message+'\n\nIf access expired, reconnect Google Sheets and try again.';els.log.classList.remove('hidden')}
-  finally{updateButtons()}
+    const targetId=await createTemplateCopy(sourceId,date);
+    const logs=await writeScheduleToSpreadsheet(targetId,date,selected);
+    const url=`https://docs.google.com/spreadsheets/d/${targetId}/edit`;
+    state.lastOutputUrl=url;
+    els.writeStatus.textContent='Filled sheet ready';
+    els.writeStatus.className='status good';
+    const warningText=logs.length?`<div>${logs.map(esc).join('<br>')}</div>`:'';
+    els.log.innerHTML=`<strong>Finished.</strong> Created a new filled workbook for ${esc(displayDate(date))}.<br><br><a href="${url}" target="_blank" rel="noopener">Open filled schedule</a>${warningText}`;
+    els.log.classList.remove('hidden');
+  }catch(err){
+    console.error(err);
+    els.writeStatus.textContent='Build failed';
+    els.writeStatus.className='status bad';
+    els.log.textContent=err.message+'\n\nIf access expired, reconnect Google Sheets and try again.';
+    els.log.classList.remove('hidden');
+  }finally{updateButtons()}
 }
 function rangeCapacity(a1){const [a,b]=a1.split(':').map(x=>+x.match(/\d+/)[0]);return Math.abs(b-a)+1}
 function aliasName(name){const n=normalize(name);return TEMPLATE.aliases[n]||name.trim()}
